@@ -2,3 +2,4 @@ rutor.is
 rutor.org
 rutor.info
 cdnbunny.org
+http://cdnbunny.org/
