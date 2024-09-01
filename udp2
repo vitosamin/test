@@ -1,0 +1,264 @@
+##############################################
+# Внимание!!! В данном примере не рассматривается
+# настройка систем в плане безопасности!
+# Все запрещающие правила на файере - настраивайте согласно 
+# Вашей политики ИБ!
+
+# Все настройки Вы производите на свой страх и риск, мы не несём ответственности за результаты
+
+# Данная Step-by-step хаутушка прилагается к видео https://youtu.be/-j8qT3biFzg
+
+################################################
+# настройки производим на удалённом VDS
+
+# Обновим пакеты и поставим некоторый софт
+
+sudo apt-get update && sudo apt-get upgrade
+sudo apt-get install sudo pwgen ufw make git wireguard wireguard-tools tmux
+
+
+# Поднастроим sysctl. Отключим ipv6 и разрешим форвард
+
+sudo touch /etc/sysctl.d/local.conf
+sudo nano /etc/sysctl.d/local.conf
+
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv4.ip_forward=1
+
+#Затем
+sudo sysctl --system
+
+
+#####################################
+#Настроим wireguard. Сгенерируем ключи
+
+sudo wg genkey | sudo tee /etc/wireguard/private.key && sudo chmod go= /etc/wireguard/private.key && sudo cat /etc/wireguard/private.key | wg pubkey | sudo tee /etc/wireguard/public.key
+
+#Посмотрим, как именуются интерфеймы на нашем сервере, запомним, эти интерфейсы могут понадобиться для маскардинга:
+sudo ip -br a
+
+#Создадим конфиг
+
+sudo touch /etc/wireguard/wg0.conf
+sudo nano /etc/wireguard/wg0.conf
+
+[Interface]
+PrivateKey = [Wireguard_server_private_key]
+Address = 10.255.0.1/30
+ListenPort = 51820
+SaveConfig = true
+MTU = 1300 # <----Need update
+PostUp = ufw route allow in on wg0 out on eth0                     #
+PostUp = iptables -t nat -I POSTROUTING -o eth0 -j MASQUERADE      # данные правила нужны, если вы планируете NAT-ить соединения
+PreDown = ufw route delete allow in on wg0 out on eth0             #
+PreDown = iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE     #
+
+[Peer]
+PublicKey = [Wireguard_client_public_key]
+AllowedIPs = 10.255.0.2/32
+
+
+#сохраняем конфиг, делаем автозапуск WG, запускаем, проверяем
+
+sudo systemctl enable wg-quick@wg0.service && sudo systemctl start wg-quick@wg0.service && sudo systemctl status wg-quick@wg0.service
+
+#########################
+#настроим udp2raw
+
+# Создадим пользователя и группу, от которого будет стартовать udp2raw и Cloak
+sudo mkdir /var/lib/vpn
+sudo groupadd vpn-group
+
+sudo useradd \
+--home-dir /var/lib/vpn/cloak \
+--create-home \
+--system \
+--shell /sbin/nologin \
+--comment "VPN user" \
+--groups vpn-group \
+vpn-user
+
+# Скачаем бинари и закинем их "по месту"
+cd ~
+mkdir udp2raw
+cd udp2raw
+wget https://github.com/wangyu-/udp2raw/releases/download/20230206.0/udp2raw_binaries.tar.gz
+tar -xzf udp2raw_binaries.tar.gz
+sudo mv udp2raw_amd64  /usr/local/bin/udp2raw_amd64
+cd ~
+rm -rf ~/udp2raw
+
+#Сгенерируем пароль, по нему будет авторизоваться клиент
+pwgen 31 1|base64
+[vash_parol_dlya_udp2raw]=
+
+#Проверяем 
+sudo /usr/local/bin/udp2raw_amd64 -s -l 0.0.0.0:4096 -r 127.0.0.1:51820 -k "[vash_parol_dlya_udp2raw]=" --raw-mode faketcp -g
+
+#видим, какое правило надо создать в iptables, создаём его
+sudo iptables -I INPUT -p tcp -m tcp --dport 4096 -j DROP
+
+#Создадим конфиг
+sudo mkdir /etc/udp2raw
+sudo touch /etc/udp2raw/server.conf
+sudo nano /etc/udp2raw/server.conf
+
+-s
+# Listen address
+-l 0.0.0.0:4096
+# Remote address
+-r 127.0.0.1:51820
+-k [vash_parol_dlya_udp2raw]=
+--raw-mode faketcp
+
+#накинем права
+sudo chown -R vpn-user:vpn-group /etc/udp2raw
+sudo chmod 760 /etc/udp2raw
+sudo chmod 640 /etc/udp2raw/server.conf
+
+#Создадим юнит для автозапуска
+sudo nano /etc/systemd/system/udp2raw-server.service
+
+[Unit]
+Description=UDP_2_RAW service
+After=After=network.target syslog.target auditd.service wg-quick@wg0.service
+StartLimitIntervalSec=0
+
+[Service]
+User=vpn-user
+Group=vpn-group
+Type=simple
+ExecStart=/usr/local/bin/udp2raw_amd64 --conf-file /etc/udp2raw/server.conf
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+# разрешим 
+sudo setcap cap_net_raw+ep /usr/local/bin/udp2raw_amd64
+
+# Сохраняем, активируем, запускаем, проверяем
+sudo systemctl daemon-reload &&   sudo systemctl enable udp2raw-server.service && sudo systemctl start udp2raw-server.service && sudo systemctl status udp2raw-server.service
+ 
+
+
+####################################################
+####################################################
+#Аналогично проделываем на клиенте
+
+# обновляем, ставим пакеты
+sudo apt-get update && sudo apt-get upgrade
+sudo apt-get install sudo pwgen ufw make git wireguard wireguard-tools tmux
+
+#Поднастроим sysctl. Отключим ipv6 и разрешим форвард
+
+sudo touch /etc/sysctl.d/local.conf
+sudo nano /etc/sysctl.d/local.conf
+
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv4.ip_forward=1
+
+# Подхватываем настройки
+sudo sysctl --system
+
+#####################################
+# Настроим wireguard
+
+sudo wg genkey | sudo tee /etc/wireguard/private.key && sudo chmod go= /etc/wireguard/private.key && sudo cat /etc/wireguard/private.key | wg pubkey | sudo tee /etc/wireguard/public.key
+
+#Создадим конфиг
+
+sudo touch /etc/wireguard/wg0.conf
+sudo nano /etc/wireguard/wg0.conf
+
+[Interface]
+PrivateKey = [Wireguard_Client_Private_key]
+Address = 10.255.0.2/30
+ListenPort = 51821
+SaveConfig = true
+MTU = 1300
+
+[Peer]
+PublicKey = [WireGuard_Server_public_key]
+AllowedIPs = 10.255.0.1/32
+Endpoint = 127.0.0.1:51820
+
+# Сохраняем, создаём службу, запускаем, проверяем
+sudo systemctl enable wg-quick@wg0.service && sudo systemctl start wg-quick@wg0.service && sudo systemctl status wg-quick@wg0.service
+
+##############################################
+# Настроим клиента udp2raw
+
+cd ~
+mkdir udp2raw
+cd udp2raw
+wget https://github.com/wangyu-/udp2raw/releases/download/20230206.0/udp2raw_binaries.tar.gz
+tar -xzf udp2raw_binaries.tar.gz
+sudo mv udp2raw_amd64  /usr/local/bin/udp2raw_amd64
+cd ~
+rm -rf ~/udp2raw
+
+# Создадим пользователя vpn-user от имени которого будем запускать сервисы обфускации
+sudo mkdir /var/lib/vpn/
+sudo groupadd vpn-group
+sudo useradd \
+--home-dir /var/lib/vpn/cloak \
+--create-home \
+--system \
+--shell /sbin/nologin \
+--comment "VPN user" \
+--groups vpn-group \
+vpn-user
+
+# Напишем конфиги клиента для udp2raw
+sudo mkdir /etc/udp2raw
+sudo touch /etc/udp2raw/client.conf
+sudo nano /etc/udp2raw/client.conf
+
+-c
+# Listen address
+-l 0.0.0.0:51820
+# Remote address
+-r [Remote_VDS_IP]:4096
+-k [vash_parol_dlya_udp2raw]=
+--raw-mode faketcp
+
+# Накинем права
+sudo chown -R vpn-user:vpn-group /etc/udp2raw
+sudo chmod 760 /etc/udp2raw
+sudo chmod 640 /etc/udp2raw/client.conf
+
+# Проверим
+sudo /usr/local/bin/udp2raw_amd64 --conf-file /etc/udp2raw/client.conf -g
+sudo iptables -I INPUT -p tcp -m tcp --dport 51820 -j DROP
+
+# разрешим
+sudo setcap cap_net_raw+ep /usr/local/bin/udp2raw_amd64
+
+# проверим
+sudo -u vpn-user /usr/local/bin/udp2raw_amd64 --conf-file /etc/udp2raw/client.conf
+
+# Создадим юнит по аналогии с сервером
+
+sudo touch /etc/systemd/system/udp2raw-client.service
+sudo nano /etc/systemd/system/udp2raw-client.service
+
+[Unit]
+Description=UDP_2_RAW service
+After=network.target syslog.target auditd.service wg-quick@wg0.service
+StartLimitIntervalSec=0
+
+[Service]
+User=vpn-user
+Group=vpn-group
+Type=simple
+ExecStart=/usr/local/bin/udp2raw_amd64 --conf-file /etc/udp2raw/client.conf
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
+# Сохраняем, активируем, запускаем, проверяем
+sudo systemctl daemon-reload && sudo systemctl enable udp2raw-client.service && sudo systemctl start udp2raw-client.service && sudo systemctl status udp2raw-client.service 
