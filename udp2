@@ -47,7 +47,7 @@ pwgen 31 1|base64
 
 
 #Проверяем 
-sudo /usr/local/bin/udp2raw_amd64 -s -l 0.0.0.0:4096 -r 127.0.0.1:51820 -k "[vash_parol_dlya_udp2raw]=" --raw-mode faketcp -g
+sudo /usr/local/bin/udp2raw_amd64 -s -l 0.0.0.0:4096 -r 127.0.0.1:51820 -k "[udp2rawpass]=" --raw-mode faketcp -g
 
 #видим, какое правило надо создать в iptables, создаём его
 sudo iptables -I INPUT -p tcp -m tcp --dport 4096 -j DROP
@@ -62,7 +62,7 @@ sudo nano /etc/udp2raw/server.conf
 -l 0.0.0.0:4096
 # Remote address
 -r 127.0.0.1:51820
--k [vash_parol_dlya_udp2raw]=
+-k [udp2rawpass]=
 --raw-mode faketcp
 -a
 
@@ -137,8 +137,8 @@ sudo nano /etc/udp2raw/client.conf
 # Listen address
 -l 0.0.0.0:51820
 # Remote address
--r [Remote_VDS_IP]:4096
--k [vash_parol_dlya_udp2raw]=
+-r [Remote]:4096
+-k [udp2rawpass]=
 --raw-mode faketcp
 -a
 
