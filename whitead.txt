@@ -4,4 +4,9 @@ quasar.yandex.ru
 passport.yandex.ru
 frontend.vh.yandex.ru
 iot.quasar.yandex.ru
-yandex.ru/quasar/iot/
+alice.yandex.ru
+dialogs.yandex.net
+speechkit.yandex.net
+tts.voicetech.yandex.net
+api.browser.yandex.ru
+yandex.net
