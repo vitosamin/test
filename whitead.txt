@@ -4,4 +4,4 @@ quasar.yandex.ru
 passport.yandex.ru
 frontend.vh.yandex.ru
 iot.quasar.yandex.ru
-yandex.ru/quasar/iot/
+yandex.ru
