@@ -1,0 +1,6 @@
+smartdevice.yandex.ru
+dialogs.yandex.ru
+quasar.yandex.ru
+passport.yandex.ru
+frontend.vh.yandex.ru
+iot.quasar.yandex.ru
