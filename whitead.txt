@@ -10,3 +10,9 @@ speechkit.yandex.net
 tts.voicetech.yandex.net
 api.browser.yandex.ru
 yandex.net
+iot.quasar.yandex.ru
+egress.yandex.net
+report.appmetrica.yandex.net
+rosenberg.appmetrica.yandex.net
+tools.messenger.yandex.net
+api.messenger.yandex.net
